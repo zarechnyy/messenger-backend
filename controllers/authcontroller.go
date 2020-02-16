@@ -1,8 +1,8 @@
 package controllers
 
 import (
-	"MyMessenger/models"
 	"MyMessenger/logger"
+	"MyMessenger/models"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -37,9 +37,9 @@ func (controller *AuthController) SignUpHandler() http.HandlerFunc {
 		defer r.Body.Close()
 
 		requestBody := struct {
-			Key string
-			Name string
-			Email string
+			Key      string
+			Name     string
+			Email    string
 			Password string
 		}{}
 
@@ -67,10 +67,9 @@ func (controller *AuthController) SignUpHandler() http.HandlerFunc {
 		user := models.User{
 			Username: requestBody.Name,
 			Password: hashedPw,
-			Email: requestBody.Email,
-			Key: requestBody.Key,
+			Email:    requestBody.Email,
+			Key:      requestBody.Key,
 		}
-		fmt.Printf("%+v\n", user)
 
 		response, err := controller.DataStore.SaveUser(user)
 		if err != nil {
@@ -95,7 +94,7 @@ func (controller *AuthController) LoginInHandler() http.HandlerFunc {
 		body, _ := ioutil.ReadAll(r.Body)
 		defer r.Body.Close()
 		requestBody := struct {
-			Email string
+			Email    string
 			Password string
 		}{}
 
