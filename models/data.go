@@ -3,6 +3,7 @@ package models
 import (
 	"errors"
 	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/websocket"
 	"github.com/jinzhu/gorm"
 	"time"
 )
@@ -13,6 +14,8 @@ type DataStorer interface {
 	GetAllUsers(token string) ([]User, error)
 	IsValidToken(token string) (bool, error)
 	FindUser(token string, name string) ([]User, error)
+	FetchSelfUser(token string) (User, error)
+	FindUserBy(token string, id string) (User, error)
 }
 
 type DataStore struct {
@@ -30,6 +33,22 @@ type User struct {
 	Email    string `gorm:"type:varchar(100);unique" json:"-"`
 	Token    string `gorm:"type:varchar(300)" json:"-"`
 	Key      string `gorm:"Column:public_key;type:varchar(500)" json:"key"`
+}
+
+type Client struct {
+	User *User
+	Ws *websocket.Conn
+}
+
+type ChatConnection struct {
+	SelfUser *User
+	User     *User
+	Ws       *websocket.Conn
+}
+
+type SocketCommand struct {
+	Type int
+	Message string
 }
 
 func (d *DataStore) SaveUser(user User) (AuthResponse, error) {
@@ -83,6 +102,16 @@ func (d *DataStore) FindUser(token string, name string) ([]User, error) {
 	return users, nil
 }
 
+func (d *DataStore) FindUserBy(token string, id string) (User, error) {
+	var user User
+	req := d.DB.Where("token <> ? AND username = ?", token, id).First(&user)
+	err := req.Error
+	if err != nil {
+		return user, errors.New("empty kek")
+	}
+	return user, nil
+}
+
 func (d *DataStore) IsValidToken(token string) (bool, error) {
 	var user User
 	req := d.DB.Where("token = ?", token).First(&user)
@@ -93,4 +122,16 @@ func (d *DataStore) IsValidToken(token string) (bool, error) {
 		return false, errors.New("no valid token")
 	}
 	return true, nil
+}
+
+func (d *DataStore) FetchSelfUser(token string) (User, error) {
+	var user User
+	req := d.DB.Where("token = ?", token).First(&user)
+	if req.Error != nil {
+		return User{}, req.Error
+	}
+	if user.UserID == 0 {
+		return User{}, errors.New("no valid token")
+	}
+	return user, nil
 }
