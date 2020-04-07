@@ -20,13 +20,13 @@ func main() {
 
 	controller := controllers.AuthController{DataStore: &storeData}
 	userController := controllers.UsersController{DataStore: &storeData}
-	chatController := controllers.Controller{}
+	chatController := controllers.Controller{DataStore: &storeData}
 	router := mux.NewRouter()
 	router.HandleFunc("/signup", controller.SignUpHandler()).Methods("POST")
 	router.HandleFunc("/login", controller.LoginInHandler()).Methods("POST")
 	router.HandleFunc("/users", userController.GetAllUsers()).Methods("GET")
 	router.HandleFunc("/users/{text}", userController.FindUser()).Methods("GET")
-	router.HandleFunc("/chat/{id}", chatController.HandleChatConnection()).Methods("POST")
+	router.HandleFunc("/chat", chatController.HandleChatConnection()).Methods("POST")
 
 	fmt.Println("Server is listening...")
 	loggedRouter := handlers.LoggingHandler(os.Stdout, router)

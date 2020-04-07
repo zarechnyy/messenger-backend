@@ -15,7 +15,7 @@ type DataStorer interface {
 	IsValidToken(token string) (bool, error)
 	FindUser(token string, name string) ([]User, error)
 	FetchSelfUser(token string) (User, error)
-	FindUserBy(token string, id string) (User, error)
+	FindUserBy(token string, id int) (User, error)
 }
 
 type DataStore struct {
@@ -32,7 +32,7 @@ type User struct {
 	Password string `gorm:"type:varchar(400)" json:"-"`
 	Email    string `gorm:"type:varchar(100);unique" json:"-"`
 	Token    string `gorm:"type:varchar(300)" json:"-"`
-	Key      string `gorm:"Column:public_key;type:varchar(500)" json:"key"`
+	Key      string `gorm:"Column:public_key;type:varchar(500)" json:"-"`
 }
 
 type Client struct {
@@ -102,9 +102,9 @@ func (d *DataStore) FindUser(token string, name string) ([]User, error) {
 	return users, nil
 }
 
-func (d *DataStore) FindUserBy(token string, id string) (User, error) {
+func (d *DataStore) FindUserBy(token string, id int) (User, error) {
 	var user User
-	req := d.DB.Where("token <> ? AND username = ?", token, id).First(&user)
+	req := d.DB.Where("token <> ? AND user_id = ?", token, id).First(&user)
 	err := req.Error
 	if err != nil {
 		return user, errors.New("empty kek")
@@ -121,6 +121,7 @@ func (d *DataStore) IsValidToken(token string) (bool, error) {
 	if user.UserID == 0 {
 		return false, errors.New("no valid token")
 	}
+	println("123")
 	return true, nil
 }
 
