@@ -24,6 +24,7 @@ type DataStore struct {
 
 type AuthResponse struct {
 	Token string `json:"token"`
+	User User `json:"user"`
 }
 
 type User struct {
@@ -35,20 +36,34 @@ type User struct {
 	Key      string `gorm:"Column:public_key;type:varchar(500)" json:"-"`
 }
 
+type Room struct {
+	ClientA Client
+	ClientB Client
+}
+
 type Client struct {
 	User *User
 	Ws *websocket.Conn
 }
 
-type ChatConnection struct {
-	SelfUser *User
-	User     *User
-	Ws       *websocket.Conn
+type SocketCommand struct {
+	Type int `json:"type"`
+	Model interface{} `json:"model"`
 }
 
-type SocketCommand struct {
-	Type int
-	Message string
+type SocketKeyModel struct {
+	Key string `json:"key"`
+	Iv string `json:"iv"`
+	SignatureKey string `json:"signatureKey"`
+	SignatureIv string `json:"signatureIv"`
+}
+
+type SocketMessageModel struct {
+	Message string `json:"message"`
+}
+
+type SocketDataModel struct {
+	Data []byte `json:"data"`
 }
 
 func (d *DataStore) SaveUser(user User) (AuthResponse, error) {
@@ -67,7 +82,7 @@ func (d *DataStore) SaveUser(user User) (AuthResponse, error) {
 		return AuthResponse{}, err
 	}
 
-	return AuthResponse{Token: generatedToken}, nil
+	return AuthResponse{Token: generatedToken, User:user}, nil
 }
 
 func (d *DataStore) FetchUser(email string) (User, error) {
@@ -121,7 +136,6 @@ func (d *DataStore) IsValidToken(token string) (bool, error) {
 	if user.UserID == 0 {
 		return false, errors.New("no valid token")
 	}
-	println("123")
 	return true, nil
 }
 

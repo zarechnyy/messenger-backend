@@ -44,7 +44,6 @@ func (c *UsersController) GetAllUsers() http.HandlerFunc {
 			Users []models.User `json:"users"`
 		}{}
 		response.Users = users
-		fmt.Printf("%+v\n", response)
 		json.NewEncoder(w).Encode(response)
 	}
 }
@@ -81,7 +80,6 @@ func (c *UsersController) FindUser() http.HandlerFunc {
 			Users []models.User `json:"users"`
 		}{}
 		response.Users = users
-		fmt.Printf("%+v\n", response)
 		json.NewEncoder(w).Encode(response)
 	}
 }

@@ -127,7 +127,7 @@ func (controller *AuthController) LoginInHandler() http.HandlerFunc {
 		}
 
 		if res.Password == hashedPw {
-			json.NewEncoder(w).Encode(models.AuthResponse{Token: res.Token})
+			json.NewEncoder(w).Encode(models.AuthResponse{Token: res.Token, User:res})
 		} else {
 			json.NewEncoder(w).Encode(errors.New("something went wrong"))
 		}

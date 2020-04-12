@@ -11,13 +11,14 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
+	"github.com/mitchellh/mapstructure"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
-var chats = make(map[models.ChatConnection]bool) // connected clients
-var clients = make(map[models.Client]bool)
+var rooms = make(map[*models.Room]bool) // connected clients
 type Controller struct {
 	DataStore models.DataStorer
 }
@@ -31,51 +32,35 @@ var upgrader = websocket.Upgrader {
 func (c *Controller) HandleChatConnection() http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		println("1")
-
 		reqToken := r.Header.Get("Authorization")
-		println(reqToken)
 		splitToken := strings.Split(reqToken, "Bearer ")
 		if len(splitToken) != 2 {
 			logr.LogErr(errors.New("No token"))
 		}
-		//client token
 		reqToken = splitToken[1]
-		println(splitToken)
-		println("2")
-		println("TOKET = ")
-		println(reqToken)
 		isValid, err := c.DataStore.IsValidToken(reqToken)
 		if err != nil || !isValid {
 			println("SRAKA 1")
 			return
 		}
-		println("3")
-		//user is authorized
 		body, _ := ioutil.ReadAll(r.Body)
 		defer r.Body.Close()
 		requestBody := struct {
 			ID    int  `json:"id"`
 		}{}
 
-		println("4")
 		if err := json.Unmarshal(body, &requestBody); err != nil {
 			logr.LogErr(err)
 			return
 		}
 
-		println("5")
-		println(requestBody.ID)
 		clientB, err := c.DataStore.FindUserBy(reqToken, requestBody.ID)
 
 		if err != nil {
 			return
 		}
-		println("6")
 
 		message := []byte(clientB.Key)
-		println("Client B KEY = ")
-		println(clientB.Key)
 		hashed := sha256.Sum256(message)
 
 		privateKey, err := getServerPrivateKey()
@@ -83,13 +68,10 @@ func (c *Controller) HandleChatConnection() http.HandlerFunc {
 			logr.LogErr(err)
 			return
 		}
-		println("7")
 		signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, hashed[:])
 		if err != nil {
 			logr.LogErr(err)
 		}
-		println("SIGNATURE = ")
-		println(string(signature))
 		response := struct {
 			Key string `json:"key"`
 			Signature string `json:"signature"`
@@ -99,90 +81,175 @@ func (c *Controller) HandleChatConnection() http.HandlerFunc {
 		base64Text := make([]byte, base64.StdEncoding.EncodedLen(len(signature)))
 		base64.StdEncoding.Encode(base64Text, signature)
 		response.Signature = string(base64Text)
-		fmt.Printf("%+v\n", response)
 		json.NewEncoder(w).Encode(response)
 	}
 }
 
-//func (c *Controller) HandleChatConnection() http.HandlerFunc {
-//	return func(w http.ResponseWriter, r *http.Request) {
-//		ws, err := upgrader.Upgrade(w, r, nil)
-//		if err != nil {
-//			logr.LogErr(err)
-//			return
-//		}
-//		reqToken := r.Header.Get("Authorization")
-//		splitToken := strings.Split(reqToken, "Bearer ")
-//		if len(splitToken) != 2 {
-//			logr.LogErr(errors.New("No token"))
-//			return
-//		}
-//		//client A
-//		reqToken = splitToken[1]
-//
-//		println(reqToken)
-//		//ID client B
-//		urlString := r.RequestURI
-//		idClientB := path.Base(urlString)
-//
-//		println(idClientB)
-//		isValid, err := c.DataStore.IsValidToken(reqToken)
-//
-//		if err != nil || isValid {
-//			println("SRAKA 1")
-//			return
-//		}
-//
-//		selfUser, err := c.DataStore.FetchSelfUser(reqToken)
-//
-//		if err != nil {
-//			println("SRAKA 2")
-//			return
-//		}
-//		println("SELF USER")
-//		println(selfUser.UserID)
-//
-//		clientB, err := c.DataStore.FindUserBy(reqToken, idClientB)
-//		if err != nil {
-//			println("SRAKA 3")
-//			return
-//		}
-//		println("CLIENT B USER")
-//		println(clientB.UserID)
-//		newChat := models.ChatConnection {
-//			SelfUser: &selfUser,
-//			User:     &clientB,
-//			Ws:       ws,
-//		}
-//
-//		//chats[newChat] = true
-//		selfClient := models.Client {
-//			User: &selfUser,
-//			Ws:   ws,
-//		}
-//
-//		//подписать приватным ключем
-//		msg := models.SocketCommand {
-//			Type:    0,
-//			Message: clientB.Key,
-//		}
-//
-//		clients[selfClient] = true
-//		selfClient.Ws.WriteJSON(msg)
-//
-//		err = selfClient.Ws.ReadJSON(&msg)
-//		if err != nil {
-//			println("SRAKA 4")
-//			return
-//		}
-//		//if val, ok := clients[clientB.UserID]; !ok {
-//		//	println("SRAKA 5")
-//		//	return
-//		//}
-//
-//		defer ws.Close()
-//
-//		//go c.HandleMessages(ws, client, toID)
-//		//go c.HandleConnection(&newChat)
-//	}
-//}
+func (c *Controller) HandleChatLogic() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		keepConnected := true
+
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			logr.LogErr(err)
+			ws.Close()
+			return
+		}
+		reqToken := r.Header.Get("Authorization")
+		splitToken := strings.Split(reqToken, "Bearer ")
+		if len(splitToken) != 2 {
+			logr.LogErr(err)
+			return
+		}
+		reqToken = splitToken[1]
+		isValid, err := c.DataStore.IsValidToken(reqToken)
+		if err != nil || !isValid {
+			logr.LogErr(err)
+			return
+		}
+
+		selfUser, err := c.DataStore.FetchSelfUser(reqToken)
+		if err != nil {
+			logr.LogErr(err)
+			return
+		}
+
+		msg := models.SocketCommand{}
+		err = ws.ReadJSON(&msg)
+		if err != nil {
+			logr.LogErr(err)
+			ws.Close()
+			return
+		}
+		if msg.Type != 0 {
+			logr.LogErr(err)
+			ws.Close()
+			return
+		}
+
+		model := models.SocketMessageModel{}
+		if err := mapstructure.Decode(msg.Model, &model); err != nil {
+			logr.LogErr(err)
+			return
+		}
+
+		userID, err := strconv.Atoi(model.Message)
+		if err != nil {
+			logr.LogErr(err)
+			return
+		}
+
+		clientB, err := c.DataStore.FindUserBy(reqToken, userID)
+		if err != nil {
+			logr.LogErr(err)
+			return
+		}
+
+		var currentRoom *models.Room
+		for room := range rooms {
+			if room.ClientA.User.UserID == selfUser.UserID && room.ClientB.User.UserID == clientB.UserID || room.ClientB.User.UserID == selfUser.UserID && room.ClientA.User.UserID == clientB.UserID {
+				currentRoom = room
+				break
+			}
+		}
+		if currentRoom != nil {
+			if currentRoom.ClientA.User.UserID == selfUser.UserID {
+				currentRoom.ClientA.Ws = ws
+				keyTrade(ws, currentRoom, &keepConnected)
+			} else {
+				currentRoom.ClientB.Ws = ws
+			}
+		} else {
+			room := models.Room{
+				ClientA: models.Client{},
+				ClientB: models.Client{},
+			}
+			room.ClientA.Ws = ws
+			room.ClientA.User = &selfUser
+			room.ClientB.User = &clientB
+			rooms[&room] = true
+
+			currentRoom = &room
+			keyTrade(ws, currentRoom, &keepConnected)
+		}
+
+		for currentRoom.ClientB.Ws == nil || currentRoom.ClientA.Ws == nil {}
+
+		go chatting(currentRoom.ClientA.Ws, currentRoom.ClientB.Ws, currentRoom, &keepConnected)
+		go chatting(currentRoom.ClientB.Ws, currentRoom.ClientA.Ws, currentRoom, &keepConnected)
+	}
+}
+
+func chatting(WsA *websocket.Conn, WsB *websocket.Conn, room* models.Room, flag *bool) {
+	for *flag {
+		msg := models.SocketCommand{}
+		err := WsA.ReadJSON(&msg)
+		if err != nil {
+			logr.LogErr(err)
+			handleWsError(room, WsA, flag)
+			return
+		}
+		model := models.SocketDataModel{}
+		fmt.Printf("%+v\n", msg)
+		if err := mapstructure.Decode(msg.Model, &model); err != nil {
+			logr.LogErr(err)
+			return
+		}
+		msg.Model = model
+		fmt.Printf("%+v\n", msg)
+		fmt.Printf("%+v\n", model)
+		err = WsB.WriteJSON(msg)
+		if err != nil {
+			logr.LogErr(err)
+			handleWsError(room, WsA, flag)
+			return
+		}
+	}
+}
+
+func keyTrade(ws *websocket.Conn, currentRoom *models.Room, flag *bool) {
+	socketModel := models.SocketKeyModel{}
+	msg := models.SocketCommand{}
+	msg.Type = 1
+	msg.Model = models.SocketMessageModel{Message: "Create key pls"}
+	err := ws.WriteJSON(msg)
+	if err != nil {
+		handleWsError(currentRoom, ws, flag)
+		println(err.Error())
+		return
+	}
+	msg = models.SocketCommand{}
+	msg.Model = models.SocketKeyModel{}
+
+	err = ws.ReadJSON(&socketModel)
+	if err != nil {
+		handleWsError(currentRoom, ws, flag)
+		println(err.Error())
+		return
+	}
+	for currentRoom.ClientB.Ws == nil { }
+	msg.Type = 2
+	msg.Model = socketModel
+	fmt.Printf("%+v\n", msg)
+	if err = currentRoom.ClientB.Ws.WriteJSON(msg); err != nil {
+		handleWsError(currentRoom, ws, flag)
+		println(err.Error())
+	}
+}
+
+func handleWsError(room *models.Room, closedWs *websocket.Conn, flag *bool) {
+	*flag = false
+	closedWs.Close()
+	if room.ClientA.Ws == closedWs {
+		//room.ClientB.Ws.WriteJSON(msg)
+		room.ClientB.Ws.Close()
+	} else {
+		//room.ClientA.Ws.WriteJSON(msg)
+		room.ClientA.Ws.Close()
+	}
+	room.ClientA.Ws = nil
+	room.ClientB.Ws = nil
+	fmt.Printf("%+v\n", room)
+	//room.ClientB.Ws.Close()
+	//delete(rooms, room)
+}
