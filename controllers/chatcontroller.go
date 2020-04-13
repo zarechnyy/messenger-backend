@@ -40,7 +40,6 @@ func (c *Controller) HandleChatConnection() http.HandlerFunc {
 		reqToken = splitToken[1]
 		isValid, err := c.DataStore.IsValidToken(reqToken)
 		if err != nil || !isValid {
-			println("SRAKA 1")
 			return
 		}
 		body, _ := ioutil.ReadAll(r.Body)
@@ -87,8 +86,7 @@ func (c *Controller) HandleChatConnection() http.HandlerFunc {
 
 func (c *Controller) HandleChatLogic() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		keepConnected := true
-
+		println("SOCKET ENDPOINT")
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			logr.LogErr(err)
@@ -155,7 +153,7 @@ func (c *Controller) HandleChatLogic() http.HandlerFunc {
 		if currentRoom != nil {
 			if currentRoom.ClientA.User.UserID == selfUser.UserID {
 				currentRoom.ClientA.Ws = ws
-				keyTrade(ws, currentRoom, &keepConnected)
+				keyTrade(ws, currentRoom)
 			} else {
 				currentRoom.ClientB.Ws = ws
 			}
@@ -170,51 +168,50 @@ func (c *Controller) HandleChatLogic() http.HandlerFunc {
 			rooms[&room] = true
 
 			currentRoom = &room
-			keyTrade(ws, currentRoom, &keepConnected)
+			keyTrade(ws, currentRoom)
 		}
-
+		println("LINE 174")
 		for currentRoom.ClientB.Ws == nil || currentRoom.ClientA.Ws == nil {}
-
-		go chatting(currentRoom.ClientA.Ws, currentRoom.ClientB.Ws, currentRoom, &keepConnected)
-		go chatting(currentRoom.ClientB.Ws, currentRoom.ClientA.Ws, currentRoom, &keepConnected)
+		println("LINE 175")
+		go chatting(currentRoom.ClientA.Ws, currentRoom.ClientB.Ws, currentRoom)
+		go chatting(currentRoom.ClientB.Ws, currentRoom.ClientA.Ws, currentRoom)
 	}
 }
 
-func chatting(WsA *websocket.Conn, WsB *websocket.Conn, room* models.Room, flag *bool) {
-	for *flag {
+func chatting(WsA *websocket.Conn, WsB *websocket.Conn, room* models.Room) {
+	for {
 		msg := models.SocketCommand{}
 		err := WsA.ReadJSON(&msg)
 		if err != nil {
 			logr.LogErr(err)
-			handleWsError(room, WsA, flag)
+			handleWsError(room, WsA)
 			return
 		}
 		model := models.SocketDataModel{}
-		fmt.Printf("%+v\n", msg)
 		if err := mapstructure.Decode(msg.Model, &model); err != nil {
 			logr.LogErr(err)
 			return
 		}
 		msg.Model = model
-		fmt.Printf("%+v\n", msg)
 		fmt.Printf("%+v\n", model)
 		err = WsB.WriteJSON(msg)
 		if err != nil {
 			logr.LogErr(err)
-			handleWsError(room, WsA, flag)
+			handleWsError(room, WsA)
 			return
 		}
 	}
 }
 
-func keyTrade(ws *websocket.Conn, currentRoom *models.Room, flag *bool) {
+func keyTrade(ws *websocket.Conn, currentRoom *models.Room) {
 	socketModel := models.SocketKeyModel{}
 	msg := models.SocketCommand{}
 	msg.Type = 1
 	msg.Model = models.SocketMessageModel{Message: "Create key pls"}
 	err := ws.WriteJSON(msg)
+	fmt.Printf("%+v\n", msg)
 	if err != nil {
-		handleWsError(currentRoom, ws, flag)
+		handleWsError(currentRoom, ws)
 		println(err.Error())
 		return
 	}
@@ -223,22 +220,23 @@ func keyTrade(ws *websocket.Conn, currentRoom *models.Room, flag *bool) {
 
 	err = ws.ReadJSON(&socketModel)
 	if err != nil {
-		handleWsError(currentRoom, ws, flag)
+		handleWsError(currentRoom, ws)
 		println(err.Error())
 		return
 	}
+	fmt.Printf("%+v\n", socketModel)
 	for currentRoom.ClientB.Ws == nil { }
 	msg.Type = 2
 	msg.Model = socketModel
 	fmt.Printf("%+v\n", msg)
 	if err = currentRoom.ClientB.Ws.WriteJSON(msg); err != nil {
-		handleWsError(currentRoom, ws, flag)
+		handleWsError(currentRoom, ws)
 		println(err.Error())
 	}
 }
 
-func handleWsError(room *models.Room, closedWs *websocket.Conn, flag *bool) {
-	*flag = false
+func handleWsError(room *models.Room, closedWs *websocket.Conn) {
+	println("handleWsError")
 	closedWs.Close()
 	if room.ClientA.Ws == closedWs {
 		//room.ClientB.Ws.WriteJSON(msg)
