@@ -84,6 +84,36 @@ func (c *Controller) HandleChatConnection() http.HandlerFunc {
 	}
 }
 
+	//func (c *Controller) HandleChatLogic() http.HandlerFunc {
+	//	return func(w http.ResponseWriter, r *http.Request) {
+	//
+	//		_ = make(chan models.SocketCommand)
+	//		_ = make(chan models.SocketCommand)
+	//		_ = make(chan models.SocketCommand)
+	//		_ = make(chan models.SocketCommand)
+	//
+	//
+	//		println("SOCKET ENDPOINT")
+	//		ws, err := upgrader.Upgrade(w, r, nil)
+	//		if err != nil {
+	//		logr.LogErr(err)
+	//			ws.Close()
+	//			return
+	//		}
+	//		reqToken := r.Header.Get("Authorization")
+	//		splitToken := strings.Split(reqToken, "Bearer ")
+	//		if len(splitToken) != 2 {
+	//			logr.LogErr(err)
+	//			return
+	//		}
+	//		reqToken = splitToken[1]
+	//		isValid, err := c.DataStore.IsValidToken(reqToken)
+	//		if err != nil || !isValid {
+	//		logr.LogErr(err)
+	//		return
+	//		}
+	//	}
+	//}
 func (c *Controller) HandleChatLogic() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		println("SOCKET ENDPOINT")
@@ -119,11 +149,6 @@ func (c *Controller) HandleChatLogic() http.HandlerFunc {
 			ws.Close()
 			return
 		}
-		if msg.Type != 0 {
-			logr.LogErr(err)
-			ws.Close()
-			return
-		}
 
 		model := models.SocketMessageModel{}
 		if err := mapstructure.Decode(msg.Model, &model); err != nil {
@@ -153,7 +178,7 @@ func (c *Controller) HandleChatLogic() http.HandlerFunc {
 		if currentRoom != nil {
 			if currentRoom.ClientA.User.UserID == selfUser.UserID {
 				currentRoom.ClientA.Ws = ws
-				keyTrade(ws, currentRoom)
+				//keyTrade(ws, currentRoom)
 			} else {
 				currentRoom.ClientB.Ws = ws
 			}
@@ -170,21 +195,20 @@ func (c *Controller) HandleChatLogic() http.HandlerFunc {
 			currentRoom = &room
 			keyTrade(ws, currentRoom)
 		}
-		println("LINE 174")
+
 		for currentRoom.ClientB.Ws == nil || currentRoom.ClientA.Ws == nil {}
-		println("LINE 175")
-		go chatting(currentRoom.ClientA.Ws, currentRoom.ClientB.Ws, currentRoom)
-		go chatting(currentRoom.ClientB.Ws, currentRoom.ClientA.Ws, currentRoom)
+		go chatting(ws, currentRoom)
 	}
 }
 
-func chatting(WsA *websocket.Conn, WsB *websocket.Conn, room* models.Room) {
+
+func chatting(ws *websocket.Conn, room* models.Room) {
 	for {
 		msg := models.SocketCommand{}
-		err := WsA.ReadJSON(&msg)
+		err := ws.ReadJSON(&msg)
 		if err != nil {
 			logr.LogErr(err)
-			handleWsError(room, WsA)
+			handleWsError(room, ws)
 			return
 		}
 		model := models.SocketDataModel{}
@@ -193,11 +217,20 @@ func chatting(WsA *websocket.Conn, WsB *websocket.Conn, room* models.Room) {
 			return
 		}
 		msg.Model = model
+		if ws == room.ClientA.Ws {
+			userName := room.ClientA.User.Username
+			println(fmt.Sprintf("Client %s writes", userName))
+			err = room.ClientB.Ws.WriteJSON(msg)
+		} else {
+			userName := room.ClientB.User.Username
+			println(fmt.Sprintf("Client %s writes", userName))
+			err = room.ClientA.Ws.WriteJSON(msg)
+		}
 		fmt.Printf("%+v\n", model)
-		err = WsB.WriteJSON(msg)
+
 		if err != nil {
 			logr.LogErr(err)
-			handleWsError(room, WsA)
+			handleWsError(room, ws)
 			return
 		}
 	}
@@ -237,17 +270,18 @@ func keyTrade(ws *websocket.Conn, currentRoom *models.Room) {
 
 func handleWsError(room *models.Room, closedWs *websocket.Conn) {
 	println("handleWsError")
-	closedWs.Close()
+	msg := models.SocketCommand{}
+	msg.Type = 5
+	msg.Model = models.SocketMessageModel{Message:"CLOSE!"}
 	if room.ClientA.Ws == closedWs {
-		//room.ClientB.Ws.WriteJSON(msg)
+		room.ClientB.Ws.WriteJSON(msg)
 		room.ClientB.Ws.Close()
 	} else {
-		//room.ClientA.Ws.WriteJSON(msg)
+		room.ClientA.Ws.WriteJSON(msg)
 		room.ClientA.Ws.Close()
 	}
-	room.ClientA.Ws = nil
-	room.ClientB.Ws = nil
+	closedWs.Close()
+	closedWs = nil
 	fmt.Printf("%+v\n", room)
-	//room.ClientB.Ws.Close()
-	//delete(rooms, room)
+	delete(rooms, room)
 }
