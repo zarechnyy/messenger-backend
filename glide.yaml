@@ -1,0 +1,13 @@
+package: MyMessenger
+import:
+- package: github.com/dgrijalva/jwt-go
+- package: github.com/gorilla/handlers
+- package: github.com/gorilla/mux
+- package: github.com/gorilla/websocket
+- package: github.com/jinzhu/gorm
+  subpackages:
+  - dialects/postgres
+- package: github.com/mitchellh/mapstructure
+- package: golang.org/x/crypto
+  subpackages:
+  - pbkdf2

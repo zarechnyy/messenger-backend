@@ -1,0 +1,30 @@
+hash: 65490916a4dd549ae5ac9ed0857add596bbb02f036d5448ba0b2a5c5d0790895
+updated: 2020-04-22T01:58:08.856958+03:00
+imports:
+- name: github.com/dgrijalva/jwt-go
+  version: dc14462fd58732591c7fa58cc8496d6824316a82
+- name: github.com/gorilla/handlers
+  version: f08afc1876ad882db8074bcb8a4cc96107d3a5f4
+- name: github.com/gorilla/mux
+  version: 75dcda0896e109a2a22c9315bca3bb21b87b2ba5
+- name: github.com/gorilla/websocket
+  version: b65e62901fc1c0d968042419e74789f6af455eb9
+- name: github.com/jinzhu/gorm
+  version: 7ea143b5484fe28148d5c73cfd43b26e8a89c94e
+  subpackages:
+  - dialects/postgres
+- name: github.com/jinzhu/inflection
+  version: 196e6ce06ca4513fbcfcbc35dc15f66074df47c9
+- name: github.com/lib/pq
+  version: 11720195feb4140252d89ec87e6ec66810ca708b
+  subpackages:
+  - hstore
+  - oid
+  - scram
+- name: github.com/mitchellh/mapstructure
+  version: ba04b217da920f27cfc994a979894602990935ad
+- name: golang.org/x/crypto
+  version: 3c4aac89819a5fdc28d906456729d3423fd46969
+  subpackages:
+  - pbkdf2
+testImports: []
