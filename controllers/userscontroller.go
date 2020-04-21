@@ -48,6 +48,101 @@ func (c *UsersController) GetAllUsers() http.HandlerFunc {
 	}
 }
 
+var usersOnline = make(map[*models.Client]bool) // online users
+
+func (c *UsersController) ShowOnlineUsers() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		println("SOCKET ENDPOINT")
+		ws, err := upgrader.Upgrade(w, r, nil)
+
+		defer ws.Close()
+
+		if err != nil {
+			logr.LogErr(err)
+			return
+		}
+		reqToken := r.Header.Get("Authorization")
+		splitToken := strings.Split(reqToken, "Bearer ")
+		if len(splitToken) != 2 {
+			logr.LogErr(err)
+			return
+		}
+		reqToken = splitToken[1]
+		isValid, err := c.DataStore.IsValidToken(reqToken)
+		if err != nil || !isValid {
+			logr.LogErr(err)
+			return
+		}
+
+		selfUser, err := c.DataStore.FetchSelfUser(reqToken)
+		if err != nil {
+			logr.LogErr(err)
+			return
+		}
+
+		client := models.Client{
+			User: &selfUser,
+			Ws:   ws,
+		}
+		usersOnline[&client] = true
+
+		sendUsers()
+
+		msg := models.SocketCommand{}
+		println("DELETE")
+
+		err = ws.ReadJSON(&msg)
+		if err != nil {
+			delete(usersOnline, &client)
+			sendUsers()
+			return
+		}
+
+		if msg.Type == 6 {
+			delete(usersOnline, &client)
+			sendUsers()
+		}
+	}
+}
+
+func sendUsers() {
+	keys := make([]models.Client, 0, len(usersOnline))
+	for k := range usersOnline {
+		keys = append(keys, *k)
+	}
+
+	for client, _ := range usersOnline {
+		msg := models.SocketCommand{}
+		response := struct {
+			Users []models.User `json:"users"`
+		}{}
+
+		response.Users = []models.User{}
+
+		for _, user := range removeElement(keys, *client) {
+			response.Users = append(response.Users, *user.User)
+		}
+
+		msg.Type = 6
+		msg.Model = response
+		client.Ws.WriteJSON(msg)
+	}
+}
+
+func removeElement(arr []models.Client, client models.Client) []models.Client{
+	var userIndex int
+	newSlice :=  make([]models.Client, len(arr))
+	copy(newSlice, arr)
+
+	for i, v := range newSlice {
+		if v == client {
+			userIndex = i
+			break
+		}
+	}
+	return append(newSlice[:userIndex], newSlice[userIndex+1:]...)
+}
+
 func (c *UsersController) FindUser() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {

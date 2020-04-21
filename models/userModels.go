@@ -3,7 +3,6 @@ package models
 import (
 	"errors"
 	"github.com/dgrijalva/jwt-go"
-	"github.com/gorilla/websocket"
 	"github.com/jinzhu/gorm"
 	"time"
 )
@@ -34,36 +33,6 @@ type User struct {
 	Email    string `gorm:"type:varchar(100);unique" json:"-"`
 	Token    string `gorm:"type:varchar(300)" json:"-"`
 	Key      string `gorm:"Column:public_key;type:varchar(500)" json:"-"`
-}
-
-type Room struct {
-	ClientA Client
-	ClientB Client
-}
-
-type Client struct {
-	User *User
-	Ws *websocket.Conn
-}
-
-type SocketCommand struct {
-	Type int `json:"type"`
-	Model interface{} `json:"model"`
-}
-
-type SocketKeyModel struct {
-	Key string `json:"key"`
-	Iv string `json:"iv"`
-	SignatureKey string `json:"signatureKey"`
-	SignatureIv string `json:"signatureIv"`
-}
-
-type SocketMessageModel struct {
-	Message string `json:"message"`
-}
-
-type SocketDataModel struct {
-	Data []byte `json:"data"`
 }
 
 func (d *DataStore) SaveUser(user User) (AuthResponse, error) {

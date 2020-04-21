@@ -28,7 +28,7 @@ func main() {
 	router.HandleFunc("/users/{text}", userController.FindUser()).Methods("GET")
 	router.HandleFunc("/chat", chatController.HandleChatConnection()).Methods("POST")
 	router.HandleFunc("/ws", chatController.HandleChatLogic())
-	//router.HandleFunc("/keys", chatController.HandleChatLogic())
+	router.HandleFunc("/online", userController.ShowOnlineUsers())
 
 	fmt.Println("Server is listening...")
 	loggedRouter := handlers.LoggingHandler(os.Stdout, router)

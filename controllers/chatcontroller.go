@@ -84,36 +84,6 @@ func (c *Controller) HandleChatConnection() http.HandlerFunc {
 	}
 }
 
-	//func (c *Controller) HandleChatLogic() http.HandlerFunc {
-	//	return func(w http.ResponseWriter, r *http.Request) {
-	//
-	//		_ = make(chan models.SocketCommand)
-	//		_ = make(chan models.SocketCommand)
-	//		_ = make(chan models.SocketCommand)
-	//		_ = make(chan models.SocketCommand)
-	//
-	//
-	//		println("SOCKET ENDPOINT")
-	//		ws, err := upgrader.Upgrade(w, r, nil)
-	//		if err != nil {
-	//		logr.LogErr(err)
-	//			ws.Close()
-	//			return
-	//		}
-	//		reqToken := r.Header.Get("Authorization")
-	//		splitToken := strings.Split(reqToken, "Bearer ")
-	//		if len(splitToken) != 2 {
-	//			logr.LogErr(err)
-	//			return
-	//		}
-	//		reqToken = splitToken[1]
-	//		isValid, err := c.DataStore.IsValidToken(reqToken)
-	//		if err != nil || !isValid {
-	//		logr.LogErr(err)
-	//		return
-	//		}
-	//	}
-	//}
 func (c *Controller) HandleChatLogic() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		println("SOCKET ENDPOINT")
