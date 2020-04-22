@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var rooms = make(map[*models.Room]bool) // connected clients
@@ -86,7 +87,8 @@ func (c *Controller) HandleChatConnection() http.HandlerFunc {
 
 func (c *Controller) HandleChatLogic() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		println("SOCKET ENDPOINT")
+		var wg sync.WaitGroup
+
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			logr.LogErr(err)
@@ -148,31 +150,35 @@ func (c *Controller) HandleChatLogic() http.HandlerFunc {
 		if currentRoom != nil {
 			if currentRoom.ClientA.User.UserID == selfUser.UserID {
 				currentRoom.ClientA.Ws = ws
-				//keyTrade(ws, currentRoom)
 			} else {
-				currentRoom.ClientB.Ws = ws
+				currentRoom.ChatChannel <- ws
 			}
 		} else {
 			room := models.Room{
 				ClientA: models.Client{},
 				ClientB: models.Client{},
 			}
+
 			room.ClientA.Ws = ws
 			room.ClientA.User = &selfUser
-			room.ClientB.User = &clientB
-			rooms[&room] = true
+			room.ChatChannel = make(chan *websocket.Conn)
 
+			room.ClientB.User = &clientB
+
+			rooms[&room] = true
 			currentRoom = &room
-			keyTrade(ws, currentRoom)
+
+			wg.Add(1)
+			go keyTrade(ws, currentRoom, &wg)
 		}
 
-		for currentRoom.ClientB.Ws == nil || currentRoom.ClientA.Ws == nil {}
+		wg.Wait()
 		go chatting(ws, currentRoom)
 	}
 }
 
 
-func chatting(ws *websocket.Conn, room* models.Room) {
+func chatting(ws *websocket.Conn, room* models.Room ) {
 	for {
 		msg := models.SocketCommand{}
 		err := ws.ReadJSON(&msg)
@@ -181,22 +187,24 @@ func chatting(ws *websocket.Conn, room* models.Room) {
 			handleWsError(room, ws)
 			return
 		}
+
 		model := models.SocketDataModel{}
 		if err := mapstructure.Decode(msg.Model, &model); err != nil {
 			logr.LogErr(err)
 			return
 		}
 		msg.Model = model
+
 		if ws == room.ClientA.Ws {
 			userName := room.ClientA.User.Username
-			println(fmt.Sprintf("Client %s writes", userName))
+			println(fmt.Sprintf("Client %s writes to %s", userName, room.ClientB.User.Username))
 			err = room.ClientB.Ws.WriteJSON(msg)
 		} else {
 			userName := room.ClientB.User.Username
-			println(fmt.Sprintf("Client %s writes", userName))
+			println(fmt.Sprintf("Client %s writes to %s", userName, room.ClientA.User.Username))
 			err = room.ClientA.Ws.WriteJSON(msg)
 		}
-		fmt.Printf("%+v\n", model)
+		fmt.Printf("%+v\n", msg)
 
 		if err != nil {
 			logr.LogErr(err)
@@ -206,7 +214,9 @@ func chatting(ws *websocket.Conn, room* models.Room) {
 	}
 }
 
-func keyTrade(ws *websocket.Conn, currentRoom *models.Room) {
+func keyTrade(ws *websocket.Conn, currentRoom *models.Room, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	socketModel := models.SocketKeyModel{}
 	msg := models.SocketCommand{}
 	msg.Type = 1
@@ -228,18 +238,21 @@ func keyTrade(ws *websocket.Conn, currentRoom *models.Room) {
 		return
 	}
 	fmt.Printf("%+v\n", socketModel)
-	for currentRoom.ClientB.Ws == nil { }
+
+	clientBWs := <- currentRoom.ChatChannel
+	currentRoom.ClientB.Ws = clientBWs
+
 	msg.Type = 2
 	msg.Model = socketModel
-	fmt.Printf("%+v\n", msg)
-	if err = currentRoom.ClientB.Ws.WriteJSON(msg); err != nil {
+
+	if err = clientBWs.WriteJSON(msg); err != nil {
 		handleWsError(currentRoom, ws)
 		println(err.Error())
 	}
 }
 
 func handleWsError(room *models.Room, closedWs *websocket.Conn) {
-	println("handleWsError")
+
 	msg := models.SocketCommand{}
 	msg.Type = 5
 	msg.Model = models.SocketMessageModel{Message:"CLOSE!"}

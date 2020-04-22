@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+var usersOnline = make(map[*models.Client]bool) // online users
+
 type UsersController struct {
 	DataStore models.DataStorer
 }
@@ -48,11 +50,8 @@ func (c *UsersController) GetAllUsers() http.HandlerFunc {
 	}
 }
 
-var usersOnline = make(map[*models.Client]bool) // online users
-
 func (c *UsersController) ShowOnlineUsers() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		println("SOCKET ENDPOINT")
 		ws, err := upgrader.Upgrade(w, r, nil)
 
 		defer ws.Close()
@@ -86,21 +85,20 @@ func (c *UsersController) ShowOnlineUsers() http.HandlerFunc {
 		}
 		usersOnline[&client] = true
 
-		sendUsers()
+		go sendUsers()
 
 		msg := models.SocketCommand{}
-		println("DELETE")
 
 		err = ws.ReadJSON(&msg)
 		if err != nil {
 			delete(usersOnline, &client)
-			sendUsers()
+			go sendUsers()
 			return
 		}
 
 		if msg.Type == 6 {
 			delete(usersOnline, &client)
-			sendUsers()
+			go sendUsers()
 		}
 	}
 }
@@ -125,7 +123,12 @@ func sendUsers() {
 
 		msg.Type = 6
 		msg.Model = response
-		client.Ws.WriteJSON(msg)
+
+		err := client.Ws.WriteJSON(msg)
+		if err != nil {
+			logr.LogErr(err)
+			return
+		}
 	}
 }
 
