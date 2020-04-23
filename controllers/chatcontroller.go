@@ -147,36 +147,96 @@ func (c *Controller) HandleChatLogic() http.HandlerFunc {
 				break
 			}
 		}
+
 		if currentRoom != nil {
 			if currentRoom.ClientA.User.UserID == selfUser.UserID {
-				currentRoom.ClientA.Ws = ws
+				delete(rooms, currentRoom)
+				wg.Add(1)
+				currentRoom  = createRoom(ws, &selfUser, &clientB)
+
+				go keyTrade(ws, currentRoom, &wg)
 			} else {
 				currentRoom.ChatChannel <- ws
+				flag := <- currentRoom.BoolChannel
+
+				if !flag {
+					delete(rooms, currentRoom)
+					wg.Add(1)
+					currentRoom  = createRoom(ws, &selfUser, &clientB)
+
+					go keyTrade(ws, currentRoom, &wg)
+				}
 			}
 		} else {
-			room := models.Room{
-				ClientA: models.Client{},
-				ClientB: models.Client{},
-			}
-
-			room.ClientA.Ws = ws
-			room.ClientA.User = &selfUser
-			room.ChatChannel = make(chan *websocket.Conn)
-
-			room.ClientB.User = &clientB
-
-			rooms[&room] = true
-			currentRoom = &room
-
 			wg.Add(1)
+			currentRoom = createRoom(ws, &selfUser, &clientB)
+
 			go keyTrade(ws, currentRoom, &wg)
 		}
 
 		wg.Wait()
+
+		if currentRoom.ClientA.Ws == ws && !pingClient(ws, currentRoom) { return }
+
+		println(fmt.Sprintf("CHATTING %s ", selfUser.Username))
 		go chatting(ws, currentRoom)
 	}
 }
 
+func createRoom(ws *websocket.Conn, selfUser *models.User, userB *models.User) *models.Room {
+
+	room := models.Room{
+		ClientA: models.Client{},
+		ClientB: models.Client{},
+	}
+
+	room.ClientA.Ws = ws
+	room.ClientA.User = selfUser
+	room.ChatChannel = make(chan *websocket.Conn)
+	room.BoolChannel = make(chan bool)
+
+	room.ClientB.User = userB
+
+	rooms[&room] = true
+	return  &room
+}
+
+func keyTrade(ws *websocket.Conn, currentRoom *models.Room, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	socketModel := models.SocketKeyModel{}
+	msg := models.SocketCommand{}
+	msg.Type = 1
+	msg.Model = models.SocketMessageModel{Message: "Create key pls"}
+	err := ws.WriteJSON(msg)
+	fmt.Printf("%+v\n", msg)
+	if err != nil {
+		handleWsError(currentRoom, ws)
+		println(err.Error())
+		return
+	}
+	msg = models.SocketCommand{}
+	msg.Model = models.SocketKeyModel{}
+
+	err = ws.ReadJSON(&socketModel)
+	if err != nil {
+		handleWsError(currentRoom, ws)
+		println(err.Error())
+		return
+	}
+	fmt.Printf("%+v\n", socketModel)
+	fmt.Printf("%+v\n", currentRoom)
+
+	currentRoom.ClientB.Ws = <- currentRoom.ChatChannel
+
+	msg.Type = 2
+	msg.Model = socketModel
+
+	if err = currentRoom.ClientB.Ws.WriteJSON(msg); err != nil {
+		handleWsError(currentRoom, ws)
+		println(err.Error())
+	}
+}
 
 func chatting(ws *websocket.Conn, room* models.Room ) {
 	for {
@@ -214,41 +274,27 @@ func chatting(ws *websocket.Conn, room* models.Room ) {
 	}
 }
 
-func keyTrade(ws *websocket.Conn, currentRoom *models.Room, wg *sync.WaitGroup) {
-	defer wg.Done()
+func pingClient(ws *websocket.Conn, currentRoom *models.Room) bool {
+	pingMsg := models.SocketCommand{
+		Type:  -1,
+		Model: models.SocketMessageModel{Message:"ping"},
+	}
 
-	socketModel := models.SocketKeyModel{}
-	msg := models.SocketCommand{}
-	msg.Type = 1
-	msg.Model = models.SocketMessageModel{Message: "Create key pls"}
-	err := ws.WriteJSON(msg)
-	fmt.Printf("%+v\n", msg)
+	if err := ws.WriteJSON(pingMsg); err != nil {
+		currentRoom.BoolChannel <- false
+		ws.Close()
+		return false
+	}
+
+	err := ws.ReadJSON(&pingMsg)
 	if err != nil {
-		handleWsError(currentRoom, ws)
-		println(err.Error())
-		return
+		currentRoom.BoolChannel <- false
+		ws.Close()
+		return false
 	}
-	msg = models.SocketCommand{}
-	msg.Model = models.SocketKeyModel{}
 
-	err = ws.ReadJSON(&socketModel)
-	if err != nil {
-		handleWsError(currentRoom, ws)
-		println(err.Error())
-		return
-	}
-	fmt.Printf("%+v\n", socketModel)
-
-	clientBWs := <- currentRoom.ChatChannel
-	currentRoom.ClientB.Ws = clientBWs
-
-	msg.Type = 2
-	msg.Model = socketModel
-
-	if err = clientBWs.WriteJSON(msg); err != nil {
-		handleWsError(currentRoom, ws)
-		println(err.Error())
-	}
+	currentRoom.BoolChannel <- true
+	return true
 }
 
 func handleWsError(room *models.Room, closedWs *websocket.Conn) {
@@ -256,15 +302,16 @@ func handleWsError(room *models.Room, closedWs *websocket.Conn) {
 	msg := models.SocketCommand{}
 	msg.Type = 5
 	msg.Model = models.SocketMessageModel{Message:"CLOSE!"}
-	if room.ClientA.Ws == closedWs {
-		room.ClientB.Ws.WriteJSON(msg)
-		room.ClientB.Ws.Close()
-	} else {
-		room.ClientA.Ws.WriteJSON(msg)
-		room.ClientA.Ws.Close()
+
+	if room.ClientA.Ws == closedWs && room.ClientB.Ws != nil {
+		_ = room.ClientB.Ws.WriteJSON(msg)
+		_ = room.ClientB.Ws.Close()
+	} else if room.ClientA.Ws != nil {
+		_ = room.ClientA.Ws.WriteJSON(msg)
+		_ = room.ClientA.Ws.Close()
 	}
-	closedWs.Close()
-	closedWs = nil
+
+	_ = closedWs.Close()
 	fmt.Printf("%+v\n", room)
 	delete(rooms, room)
 }
